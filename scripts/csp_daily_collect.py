@@ -147,6 +147,12 @@ def extract_csp_data(store_id):
     print(f"  Store: tier {data['tier']}, rank {data['rank']}, "
           f"30d GMV ${data['gmv_30d']:.2f}")
 
+    if data["gmv"] == 0 and data["orders"] == 0:
+        raise RuntimeError(
+            "Data validation failed: GMV and orders both 0. "
+            "Page likely not rendered or regex mismatch."
+        )
+
     return data
 
 
