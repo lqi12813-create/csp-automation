@@ -73,21 +73,28 @@ def extract_csp_data(store_id):
         raise RuntimeError(f"visit_page failed: {r}")
     print(f"  Navigated: {r['data'].get('title', '?')}")
 
-    # Wait for page to load (SPA)
-    time.sleep(2)
+    # Wait for SPA to render (poll for "昨日全天")
+    for attempt in range(10):
+        time.sleep(1)
+        r = zclaw_call(
+            "execute_script",
+            {
+                "storeId": store_id,
+                "script": "document.body.textContent.indexOf('昨日全天') > -1",
+            },
+        )
+        if r["ret"] == 0 and r["data"]["data"].get("result"):
+            print(f"  Page ready after {attempt + 1}s")
+            break
+    else:
+        print("  ⚠ Page not ready after 10s, extracting anyway...")
 
     # Extract page text
     r = zclaw_call(
         "execute_script",
         {
             "storeId": store_id,
-            "script": """
-(function() {
-    var main = document.querySelector("[class*=main],[class*=content],[class*=page]");
-    var text = (main || document.body).textContent.replace(/\\s+/g, " ").trim();
-    return text;
-})()
-""",
+            "script": "document.body.textContent.replace(/\\s+/g, ' ').trim()",
         },
     )
     if r["ret"] != 0:
@@ -99,11 +106,11 @@ def extract_csp_data(store_id):
 
     # Yesterday's full-day data (from 实时概况 → 昨日全天)
     for metric, key, pattern in [
-        ("支付金额", "gmv", r"昨日全天\s*([0-9,.]+)"),
-        ("访客数", "visitors", r".*?访客数[^0-9]*?昨日全天\s*([0-9,.]+)"),
-        ("支付买家数", "buyers", r"支付买家数[^0-9]*?昨日全天\s*([0-9,.]+)"),
-        ("支付订单数", "orders", r"支付订单数[^0-9]*?昨日全天\s*([0-9,.]+)"),
-        ("浏览量", "pageviews", r"浏览量[^0-9]*?昨日全天\s*([0-9,.]+)"),
+        ("支付金额", "gmv", r"支付金额.*?昨日全天\s*([0-9,.]+)"),
+        ("访客数", "visitors", r"访客数.*?昨日全天\s*([0-9,.]+)"),
+        ("支付买家数", "buyers", r"支付买家数.*?昨日全天\s*([0-9,.]+)"),
+        ("支付订单数", "orders", r"支付订单数.*?昨日全天\s*([0-9,.]+)"),
+        ("浏览量", "pageviews", r"浏览量.*?昨日全天\s*([0-9,.]+)"),
     ]:
         m = re.search(pattern, text)
         if m:
