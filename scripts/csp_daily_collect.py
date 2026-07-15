@@ -73,21 +73,21 @@ def extract_csp_data(store_id):
         raise RuntimeError(f"visit_page failed: {r}")
     print(f"  Navigated: {r['data'].get('title', '?')}")
 
-    # Wait for SPA to render (poll for "昨日全天")
-    for attempt in range(10):
-        time.sleep(1)
+    # Wait for SPA to render (poll for numeric data after labels, not just skeleton)
+    for attempt in range(15):
+        time.sleep(2)
         r = zclaw_call(
             "execute_script",
             {
                 "storeId": store_id,
-                "script": "document.body.textContent.indexOf('昨日全天') > -1",
+                "script": "/昨日全天\\s+\\d/.test(document.body.textContent)",
             },
         )
         if r["ret"] == 0 and r["data"]["data"].get("result"):
-            print(f"  Page ready after {attempt + 1}s")
+            print(f"  Page ready after {(attempt + 1) * 2}s")
             break
     else:
-        print("  ⚠ Page not ready after 10s, extracting anyway...")
+        print("  ⚠ Page not ready after 30s, extracting anyway...")
 
     # Extract page text
     r = zclaw_call(
