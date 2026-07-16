@@ -86,56 +86,66 @@ def _do_submit(zc: ZClawClient, ctx: ListingContext) -> dict:
     """)
     state = json.loads(page_state) if isinstance(page_state, str) else {}
 
-    if "publish-success" in state.get("url", ""):
-        # Extract new product ID
-        import re
-        m = re.search(r'productId=(\d+)', state["url"])
-        new_id = m.group(1) if m else "unknown"
+    body = state.get("body_text", "")
+    url = state.get("url", "")
+
+    # Success: URL changes to show the new product ID (different from copy source)
+    # or redirects to product management page
+    import re
+    m = re.search(r'productId=(\d+)', url)
+    new_id = m.group(1) if m else None
+
+    if "publish-success" in url or "productManage" in url:
+        ctx.new_product_id = new_id or "unknown"
+        print(f"  ✅ Submitted! New product ID: {ctx.new_product_id}")
+        return {"success": True, "product_id": ctx.new_product_id, "url": url}
+
+    # Success: product ID changed (no redirect but different productId in URL)
+    if new_id and new_id != ctx.source_product_id:
         ctx.new_product_id = new_id
         print(f"  ✅ Submitted! New product ID: {new_id}")
-        return {"success": True, "product_id": new_id, "url": state["url"]}
+        return {"success": True, "product_id": new_id, "url": url}
+
+    # Also check for success message in body
+    if "成功" in body and ("发布" in body or "上架" in body):
+        print(f"  ✅ Success detected in body text")
+        ctx.new_product_id = new_id or "pending_verification"
+        return {"success": True, "product_id": ctx.new_product_id, "url": url}
 
     # Check for error messages
-    body = state.get("body_text", "")
     if any(kw in body for kw in ["CHK_", "error", "失败", "Error"]):
         raise classify_submit_error(body)
 
     raise SubmitRejected(
-        f"Unknown submit result. URL: {state.get('url', '?')}",
+        f"Unknown submit result. URL: {url}",
         csp_error_code="unknown",
     )
 
 
 def _handle_dialog(zc, button_text: str, dialog_name: str):
-    """Handle a modal dialog by clicking the confirmation button."""
-    try:
-        zc.click_element(f"text={button_text}")
-        return
-    except Exception:
-        pass
+    """Handle a modal dialog by clicking the confirmation button.
 
-    # Fallback: use JS to find and click the button
+    CSP modals don't use .ait-modal-root — buttons are in generic overlay containers.
+    We search all visible buttons on the page for the target text.
+    """
     clicked = zc.execute_script(f"""
     (function() {{
-        var modal = document.querySelector('.ait-modal-root');
-        if (!modal) return 'no_modal';
-        var buttons = modal.querySelectorAll('button');
+        // Search ALL visible buttons for the target text
+        var buttons = document.querySelectorAll('button');
         for (var i = 0; i < buttons.length; i++) {{
-            if (buttons[i].textContent.indexOf('{button_text}') > -1) {{
+            if (buttons[i].offsetParent !== null &&
+                buttons[i].textContent.indexOf('{button_text}') > -1) {{
                 buttons[i].click();
                 return 'clicked';
             }}
         }}
-        // Last resort: click any primary button in modal
-        var primary = modal.querySelector('.ait-btn-primary, [class*=primary]');
-        if (primary) {{ primary.click(); return 'primary_clicked'; }}
         return 'not_found';
     }})()
     """)
 
-    if clicked in ("no_modal", "not_found"):
+    if clicked != "clicked":
         raise DialogChainBroken(
-            f"Dialog '{dialog_name}' not found or button '{button_text}' missing. "
+            f"Dialog '{dialog_name}' button '{button_text}' not found. "
             f"JS result: {clicked}"
         )
 

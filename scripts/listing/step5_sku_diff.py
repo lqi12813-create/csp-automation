@@ -78,7 +78,8 @@ def step5_sku_diff(zc: ZClawClient, ctx: ListingContext,
             if (!document.querySelector('[class*=price][disabled]') && priceField > 0) {{
                 var newPrice = Math.ceil(priceField * {1 + price_increase_pct} * 100) / 100;
                 if (sku.skuPrice !== undefined) sku.skuPrice = newPrice;
-                if (sku.salePrice !== undefined) sku.salePrice = newPrice;
+                // Remove salePrice — B-type products don't support promotional pricing
+                if (sku.salePrice !== undefined) delete sku.salePrice;
             }} else {{
                 skipPrice = true;
             }}

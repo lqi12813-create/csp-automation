@@ -24,8 +24,12 @@ def step6_hs_code_fix(zc: ZClawClient, ctx: ListingContext) -> dict:
         var form = window.__form__;
         var hsValue = form.getValuesIn('usHsCode');
         var hsState = form.getFieldState('usHsCode');
+        var keys = hsValue ? Object.keys(hsValue) : [];
+        // Detect stub: has 'version' but no 'hsCode' (real HS code data)
+        var isStub = keys.indexOf('hsCode') === -1 && keys.length <= 2;
         return JSON.stringify({
-            configured: !!(hsValue && Object.keys(hsValue).length > 0),
+            configured: !!(hsValue && keys.length > 0),
+            is_stub: isStub,
             has_errors: !!(hsState && hsState.errors && hsState.errors.length > 0),
             errors: hsState?.errors || []
         });
@@ -33,7 +37,7 @@ def step6_hs_code_fix(zc: ZClawClient, ctx: ListingContext) -> dict:
     """)
     hs_status = json.loads(status) if isinstance(status, str) else {}
 
-    if hs_status.get("configured") and not hs_status.get("has_errors"):
+    if hs_status.get("configured") and not hs_status.get("has_errors") and not hs_status.get("is_stub"):
         print("  HS Code already configured and valid — skipping")
         ctx.hs_code_status = "ok"
         return {"fixed": False, "reason": "already_ok"}
