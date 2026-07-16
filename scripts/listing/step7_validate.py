@@ -24,14 +24,19 @@ def step7_validate(zc: ZClawClient, ctx: ListingContext) -> dict:
     Only check failures with pass=False block submission.
     """
 
+    import json as _json
+
     original_title = ctx.source_product_name or ""
     suffix = ctx.sku_suffix
+
+    # Use json.dumps for safe JS string injection (handles quotes, newlines, etc.)
+    _orig_title_js = _json.dumps(original_title)
+    _suffix_js = _json.dumps(suffix)
 
     script = f"""
     (function() {{
         var form = window.__form__;
         var results = [];
-        var errors = [];
 
         // Read title (may be array of multi-lang objects)
         var rawTitle = form.values.title || '';
@@ -44,7 +49,7 @@ def step7_validate(zc: ZClawClient, ctx: ListingContext) -> dict:
         }}
 
         // 1. Anti-duplicate: title changed
-        var titleChanged = '{original_title}' === '' || title !== '{original_title}';
+        var titleChanged = {_orig_title_js} === '' || title !== {_orig_title_js};
         results.push({{check: 'title_changed', pass: titleChanged,
                        detail: title.substring(0, 60), block: true}});
 
@@ -55,11 +60,12 @@ def step7_validate(zc: ZClawClient, ctx: ListingContext) -> dict:
 
         // 3. SKU codes differentiated (CSP uses skuOuterId)
         var skus = form.values.sku || [];
+        var suffix = {_suffix_js};
         var allDiffed = skus.every(function(s) {{
-            return '{suffix}' === '' || (s.skuOuterId || '').endsWith('{suffix}');
+            return suffix === '' || (s.skuOuterId || '').endsWith(suffix);
         }});
         results.push({{check: 'sku_diff', pass: allDiffed,
-                       detail: skus.length + ' SKUs, suffix=' + '{suffix}', block: true}});
+                       detail: skus.length + ' SKUs, suffix=' + suffix, block: true}});
 
         // 4. SKU data completeness (CSP uses skuPrice/skuStock)
         var incomplete = skus.filter(function(s) {{

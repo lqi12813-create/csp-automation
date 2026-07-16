@@ -22,9 +22,11 @@ def step4_rewrite_title(zc: ZClawClient, ctx: ListingContext,
                    If None, read current title and suggest rewrite.
     """
     # Read current title (CSP stores multi-language titles as array)
-    raw_title = zc.execute_script(
-        "return JSON.stringify((window.__form__ && window.__form__.values.title) || '')"
-    )
+    raw_title = zc.execute_script("""
+    (function() {
+        return JSON.stringify((window.__form__ && window.__form__.values.title) || '');
+    })()
+    """)
     if isinstance(raw_title, str):
         raw_title = json.loads(raw_title)
 
