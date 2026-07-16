@@ -29,6 +29,7 @@ def step5_sku_diff(zc: ZClawClient, ctx: ListingContext,
     suffix = ctx.sku_suffix
 
     # Step 1: Read current SKU state
+    # CSP Formily uses: skuPrice, skuStock/skuTotalStock, cargoPrice, salePrice
     sku_state_json = zc.execute_script("""
     (function() {
         var form = window.__form__;
@@ -37,10 +38,9 @@ def step5_sku_diff(zc: ZClawClient, ctx: ListingContext,
         var summary = skus.map(function(s, i) {
             return {
                 index: i,
-                skuCode: s.skuCode || '',
                 skuOuterId: s.skuOuterId || '',
-                price: s.price || s.retailPrice || 0,
-                stock: s.stock || s.inventory || 0,
+                price: s.skuPrice || s.salePrice || 0,
+                stock: s.skuStock || s.skuTotalStock || 0,
                 priceDisabled: !!document.querySelector('[class*=price][disabled]')
             };
         });
@@ -73,31 +73,27 @@ def step5_sku_diff(zc: ZClawClient, ctx: ListingContext,
                 sku.skuOuterId = sku.skuOuterId + '{suffix}';
                 changed++;
             }}
-            // Adjust price if not locked
-            if (!document.querySelector('[class*=price][disabled]') && sku.price > 0) {{
-                var newPrice = Math.ceil(sku.price * {1 + price_increase_pct} * 100) / 100;
-                sku.price = newPrice;
+            // Adjust price if not locked (CSP uses skuPrice/salePrice)
+            var priceField = sku.skuPrice || sku.salePrice;
+            if (!document.querySelector('[class*=price][disabled]') && priceField > 0) {{
+                var newPrice = Math.ceil(priceField * {1 + price_increase_pct} * 100) / 100;
+                if (sku.skuPrice !== undefined) sku.skuPrice = newPrice;
+                if (sku.salePrice !== undefined) sku.salePrice = newPrice;
             }} else {{
                 skipPrice = true;
             }}
-            // Increase stock (never decrease)
-            if (sku.stock !== undefined) {{
-                sku.stock = (sku.stock || 0) + {stock_increase};
-            }} else if (sku.inventory !== undefined) {{
-                sku.inventory = (sku.inventory || 0) + {stock_increase};
+            // Increase stock (CSP uses skuStock/skuTotalStock, never decrease)
+            if (sku.skuStock !== undefined) {{
+                sku.skuStock = (sku.skuStock || 0) + {stock_increase};
+            }} else if (sku.skuTotalStock !== undefined) {{
+                sku.skuTotalStock = (sku.skuTotalStock || 0) + {stock_increase};
             }}
         }});
 
-        form.setValuesIn('sku', [...skus]);
-        form.setFieldState('sku', function(state) {{
-            state.modified = true;
-        }});
+        form.setValuesIn('sku', skus.map(function(s) {{ return {{...s}}; }}));
+        form.setFieldState('sku', function(state) {{ state.modified = true; }});
 
-        return JSON.stringify({{
-            changed: changed,
-            total: skus.length,
-            skipPrice: skipPrice
-        }});
+        return JSON.stringify({{changed: changed, total: skus.length, skipPrice: skipPrice}});
     }})()
     """
     result_json = zc.execute_script(modify_js)

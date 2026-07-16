@@ -21,15 +21,22 @@ def step4_rewrite_title(zc: ZClawClient, ctx: ListingContext,
         new_title: If provided, use this title directly.
                    If None, read current title and suggest rewrite.
     """
-    # Read current title
-    original = zc.execute_script(
-        "return (window.__form__ && window.__form__.values.title) || ''"
+    # Read current title (CSP stores multi-language titles as array)
+    raw_title = zc.execute_script(
+        "return JSON.stringify((window.__form__ && window.__form__.values.title) || '')"
     )
-    if isinstance(original, str):
-        original = original.strip()
+    if isinstance(raw_title, str):
+        raw_title = json.loads(raw_title)
+
+    # Extract English title
+    if isinstance(raw_title, list):
+        en_entry = next((t for t in raw_title if t.get("key") == "en_US"), None)
+        original = (en_entry.get("value", "") if en_entry else "").strip()
+    else:
+        original = str(raw_title).strip() if raw_title else ""
 
     if not original:
-        raise TitleGenerationFailed("Cannot read current title from form")
+        raise TitleGenerationFailed("Cannot read English title from form")
 
     ctx.source_product_name = original
     print(f"  Original: {original[:80]}... ({len(original)} chars)")
@@ -37,7 +44,6 @@ def step4_rewrite_title(zc: ZClawClient, ctx: ListingContext,
     if new_title:
         final_title = new_title
     else:
-        # Generate suggestion via AI — for now, apply structural rewrite
         final_title = _generate_title_variant(original)
 
     # Validate
@@ -48,15 +54,20 @@ def step4_rewrite_title(zc: ZClawClient, ctx: ListingContext,
     if final_title == original:
         raise TitleGenerationFailed("Generated title is identical to original")
 
-    # Write via Formily — target English input specifically
+    # Write via Formily — update English entry in title array
     set_js = f"""
     (function() {{
         var form = window.__form__;
-        // Find the English title field (first title input in the form)
-        form.setValuesIn('title', {json.dumps(final_title)});
-        form.setFieldState('title', function(state) {{
-            state.modified = true;
-        }});
+        var titles = form.values.title;
+        var en = titles.find(function(t) {{ return t.key === 'en_US'; }});
+        if (en) {{
+            en.value = {json.dumps(final_title)};
+            en.isEditedByUser = true;
+        }} else {{
+            titles.push({{key: 'en_US', label: '英语', value: {json.dumps(final_title)}, isEditedByUser: true}});
+        }}
+        form.setValuesIn('title', titles.map(function(t) {{ return {{...t}}; }}));
+        form.setFieldState('title', function(state) {{ state.modified = true; }});
         return 'ok';
     }})()
     """

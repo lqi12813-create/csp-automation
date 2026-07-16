@@ -33,47 +33,40 @@ def step7_validate(zc: ZClawClient, ctx: ListingContext) -> dict:
         var results = [];
         var errors = [];
 
+        // Read title (may be array of multi-lang objects)
+        var rawTitle = form.values.title || '';
+        var title = '';
+        if (Array.isArray(rawTitle)) {{
+            var en = rawTitle.find(function(t) {{ return t.key === 'en_US'; }});
+            title = (en && en.value) ? en.value : '';
+        }} else {{
+            title = String(rawTitle);
+        }}
+
         // 1. Anti-duplicate: title changed
-        var title = form.values.title || '';
         var titleChanged = '{original_title}' === '' || title !== '{original_title}';
-        results.push({{
-            check: 'title_changed',
-            pass: titleChanged,
-            detail: title.substring(0, 60),
-            block: true
-        }});
+        results.push({{check: 'title_changed', pass: titleChanged,
+                       detail: title.substring(0, 60), block: true}});
 
-        // 2. Title length
+        // 2. Title length (100-128 chars for CSP)
         var titleOk = title.length >= 100 && title.length <= 128;
-        results.push({{
-            check: 'title_length',
-            pass: titleOk,
-            detail: title.length + ' chars (need 100-128)',
-            block: true
-        }});
+        results.push({{check: 'title_length', pass: titleOk,
+                       detail: title.length + ' chars (need 100-128)', block: true}});
 
-        // 3. SKU codes differentiated
+        // 3. SKU codes differentiated (CSP uses skuOuterId)
         var skus = form.values.sku || [];
         var allDiffed = skus.every(function(s) {{
             return '{suffix}' === '' || (s.skuOuterId || '').endsWith('{suffix}');
         }});
-        results.push({{
-            check: 'sku_diff',
-            pass: allDiffed,
-            detail: skus.length + ' SKUs, suffix=' + '{suffix}',
-            block: true
-        }});
+        results.push({{check: 'sku_diff', pass: allDiffed,
+                       detail: skus.length + ' SKUs, suffix=' + '{suffix}', block: true}});
 
-        // 4. SKU data completeness
+        // 4. SKU data completeness (CSP uses skuPrice/skuStock)
         var incomplete = skus.filter(function(s) {{
-            return !(s.price || s.retailPrice) || !(s.stock || s.inventory);
+            return !(s.skuPrice || s.salePrice) || !(s.skuStock || s.skuTotalStock);
         }});
-        results.push({{
-            check: 'sku_complete',
-            pass: incomplete.length === 0,
-            detail: incomplete.length + ' incomplete SKUs',
-            block: false
-        }});
+        results.push({{check: 'sku_complete', pass: incomplete.length === 0,
+                       detail: incomplete.length + ' incomplete SKUs', block: false}});
 
         // 5. HS Code
         var hsState = form.getFieldState('usHsCode');
